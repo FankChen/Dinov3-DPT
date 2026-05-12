@@ -1,0 +1,83 @@
+# =============================================================================
+# DINOv3 + DPT depth baseline @ NYU labeled subset (795 train / 654 test)
+# -----------------------------------------------------------------------------
+# 与官方 config-nyu.yaml 的差异:
+#   - n_gpus: 8 → 1                  (集群单卡 H200)
+#   - bs: 2 保持                     (单卡 bs=2,等效 batch=2,远小于官方 16)
+#   - decoder_head.type: linear → dpt(我们要 baseline DPT 头)
+#   - backbone_out_layers: LAST → FOUR_EVEN_INTERVALS  (DPT 必须取 4 层)
+#   - use_cls_token: False → True   (DPT 默认要 readout_type='project')
+#   - datasets.train/val/test: NYU → NYULabeled  (我们的子集类)
+#   - 加上 model 段                  (官方默认 None,跑训练时必填)
+#
+# 警告:训练数据 795 张 vs 论文 BTS 24k 张 → 数字会比 paper 差,这是预期。
+#       本 yaml 不缩短 total_iter,仍按官方 38400 走(让 head 充分收敛)。
+# =============================================================================
+
+# ---- 全局 ----
+bs: 2
+n_gpus: 1
+seed: 321
+
+# ---- backbone 加载(本地路径,完全离线)----
+model:
+  config_file: dinov3/dinov3/configs/train/dinov3_vitl16_lvd1689m_distilled.yaml
+  # 由 scripts/download_weights.py 下到 my_baseline/checkpoints/dinov3_vitl16/
+  # 下完确认文件名,然后填到下面;典型名: dinov3_vitl16_pretrain_lvd1689m-*.pth
+  pretrained_weights: my_baseline/checkpoints/dinov3_vitl16/model.pth
+
+# ---- scheduler / optimizer:与官方 NYU 完全一致 ----
+scheduler:
+  total_iter: 38400
+  type: 'WarmupOneCycleLR'
+  constructor_kwargs:
+    final_div_factor: 1000.0
+    warmup_iters: 12800
+    base_momentum: 0.85
+    max_momentum: 0.95
+optimizer:
+  lr: 3e-4
+  beta1: 0.9
+  beta2: 0.99
+  weight_decay: 1e-4
+  gradient_clip: 35
+
+# ---- 数据集:用我们的 NYULabeled,在 run_train.py 里 monkey-patch 注册 ----
+datasets:
+  root: my_baseline/data/nyu               # symlink 到 /fs/scratch/.../nyuv2
+  train: 'NYULabeled:split=TRAIN'
+  val: 'NYULabeled:split=TEST'             # 没有官方 VAL,用 TEST 代替监控
+  test: 'NYULabeled:split=TEST'
+
+# ---- decoder head: DPT(本 baseline 的核心)----
+decoder_head:
+  type: dpt
+  min_depth: 0.001
+  max_depth: 10.0
+  use_backbone_norm: True
+  use_batchnorm: True
+  backbone_out_layers: FOUR_EVEN_INTERVALS  # ViT-L 24 层 → [4,11,17,23]
+  use_cls_token: True                       # DPT readout='project' 需要 CLS
+  n_output_channels: 256
+
+# ---- loss ----
+losses:
+  SIGLOSS: 1.0
+
+# ---- transforms:与官方 NYU 完全一致 ----
+transforms:
+  train:
+    random_crop: [416, 544]
+    brightness_range: [0.75, 1.25]
+    fixed_crop: 'NYU'
+    eval_mask: 'FULL'
+  eval:
+    fixed_crop: 'FULL'
+    eval_mask: 'NYU_EIGEN'
+
+# ---- eval ----
+eval:
+  min_depth: 0.001
+  max_depth: 10.0
+  use_tta: true
+  align_least_squares: false

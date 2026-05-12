@@ -1,0 +1,31 @@
+name: dinov3_baseline
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  # PyTorch with CUDA 12.1 (matches DINOv3 requirements)
+  - pytorch::pytorch=2.4.*
+  - pytorch::torchvision
+  - pytorch::pytorch-cuda=12.1
+  # 基础数值/IO
+  - numpy
+  - pandas
+  - scikit-learn
+  - pillow
+  # DINOv3 依赖
+  - omegaconf
+  - termcolor
+  - pip:
+      - ftfy
+      - regex
+      - iopath
+      - submitit
+      - torchmetrics
+      - huggingface_hub      # 拉 backbone 权重
+      - safetensors
+      - tensorboard
+      - tqdm

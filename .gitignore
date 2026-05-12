@@ -1,0 +1,17 @@
+# 训练产物
+checkpoints/
+data/
+outputs/
+jobs/
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+
+# python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# system
+.DS_Store
