@@ -1,0 +1,42 @@
+#!/bin/bash -l
+#BSUB -J dpt-kitti-smoke
+#BSUB -o my_baseline/jobs/dpt_kitti_smoke.%J.stdout
+#BSUB -e my_baseline/jobs/dpt_kitti_smoke.%J.stderr
+#BSUB -q batch_h200
+#BSUB -W 0:30
+#BSUB -n 8
+#BSUB -M 32768
+#BSUB -gpu "num=1:aff=yes"
+
+# =============================================================================
+# 5-step CUDA + AMP smoke test for the self-built DPT baseline.
+# Submit from /home/izi2sgh/MYDATA/quanjie/liren/dinov3_baseline :
+#     bsub < my_baseline/scripts/smoke_dpt_kitti.bsub
+# Verifies:
+#   - HF DINOv3 ViT-L loads onto CUDA
+#   - DPT head fwd+bwd works under fp16 AMP
+#   - KITTI improved GT loader works on the actual filesystem
+#   - 1 checkpoint written + history.json
+# =============================================================================
+
+set -e
+
+module purge
+module load conda/25.1.1
+module load cuda/12.4.0
+conda activate /home/izi2sgh/MYDATA/quanjie/liren/envs/dinov3_baseline
+
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+nvidia-smi || true
+
+cd /home/izi2sgh/MYDATA/quanjie/liren/dinov3_baseline
+export PYTHONPATH=$PWD:$PWD/dinov3:$PYTHONPATH
+
+mkdir -p my_baseline/jobs my_baseline/outputs
+
+python my_baseline/scripts/train_dpt_kitti.py \
+    --config my_baseline/configs/dpt_kitti_vitl.yaml \
+    --smoke
+
+echo "===== smoke done ====="

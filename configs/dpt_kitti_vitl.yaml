@@ -1,0 +1,84 @@
+# =============================================================================
+# DINOv3-L (frozen, HF) + DPT head baseline @ KITTI Eigen-Zhou train split
+# Consumed by: my_baseline/scripts/train_dpt_kitti.py (self-contained loop;
+#              does NOT use dinov3.eval.depth.run_train.py)
+# -----------------------------------------------------------------------------
+# Rationale notes:
+# - SYNTHMIX is closed-source; we therefore train on KITTI improved GT
+#   (data_depth_annotated, Eigen-Zhou split) using the *same architecture* as
+#   the released DPT head, so we have a controlled in-domain baseline.
+# - Hyperparameters seeded from dinov3 official `config-nyu.yaml`
+#   (lr=3e-4, wd=1e-4, beta2=0.99, gradient_clip=35, WarmupOneCycleLR,
+#    warmup=12800/38400 iters, SigLoss). We keep the same recipe but on
+#   KITTI resolution / split.
+# - Only the DPT head is trainable (~34M params). Backbone is frozen.
+# =============================================================================
+
+run_name: "dpt_kitti_vitl_v0"
+
+# --------- model ---------
+model:
+  hf_model_id: "facebook/dinov3-vitl16-pretrain-lvd1689m"
+  embed_dim: 1024
+  # FOUR_EVEN_INTERVALS for ViT-L (24 blocks). Matches dinov3 encoder.py.
+  backbone_out_layers: [4, 11, 17, 23]
+  dpt_channels: 256
+  post_process_channels: [128, 256, 512, 1024]
+  readout_type: "project"
+  n_hidden_channels: 32
+  max_depth: 80.0       # KITTI standard
+  min_depth: 0.001
+  detach_backbone_features: true
+
+# --------- data ---------
+data:
+  data_path: "/home/izi2sgh/MYDATA/quanjie/liren/depth-v3/training-for-depth-anything-v3/kitti_root/raw"
+  anno_path: "/home/izi2sgh/MYDATA/quanjie/liren/depth-v3/training-for-depth-anything-v3/kitti_root/depth"
+  train_split: "my_baseline/datasets/splits/eigen_zhou/train_files.txt"
+  val_split:   "my_baseline/datasets/splits/eigen_benchmark/test_files.txt"
+  test_split:  "my_baseline/datasets/splits/eigen_benchmark/test_files.txt"
+  height: 192
+  width: 640
+  gt_source_train: "improved"     # train on improved GT (dense)
+  gt_source_val:   "improved"     # eval with improved GT (eigen_benchmark)
+  color_jitter: true
+  frame_idxs: [0]                 # supervised; no neighbour frames needed
+  img_ext: ".png"
+
+# --------- optimizer / scheduler ---------
+optimizer:
+  type: "AdamW"
+  lr: 3.0e-4
+  beta1: 0.9
+  beta2: 0.99
+  weight_decay: 1.0e-4
+
+scheduler:
+  type: "WarmupOneCycleLR"
+  total_iter: 38400
+  warmup_iters: 12800
+  final_div_factor: 1000.0
+  base_momentum: 0.85
+  max_momentum: 0.95
+
+train:
+  batch_size: 8
+  num_workers: 4
+  grad_clip: 35.0
+  amp: true                  # mixed precision (head is small, gain mostly from backbone fwd)
+  log_every: 50
+  eval_every: 2000           # iters
+  ckpt_every: 5000
+  save_dir: "my_baseline/outputs/dpt_kitti_vitl_v0"
+
+loss:
+  type: "SigLoss"
+  warm_up: true
+  warm_iter: 100
+
+eval:
+  batch_size: 1               # KITTI eval is per-image at native GT res
+  num_workers: 2
+  align: "median"             # for self-sup-style report; also do least_squares below
+  also_report_least_squares: true
+  split: "eigen_benchmark"    # uses improved GT, no garg crop
